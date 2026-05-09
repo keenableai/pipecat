@@ -55,36 +55,72 @@ load_dotenv(override=True)
 # Persona prompts (inspired by PeerCoT: Chaturvedi et al., 2026)
 # ---------------------------------------------------------------------------
 
-EXPERT_SYSTEM = """\
+LANGUAGE = os.environ.get("PEERCOT_LANGUAGE", "en")
+
+EXPERT_SYSTEM_EN = """\
 You are the Expert in a two-person voice discussion podcast. You are precise, \
 analytical, and evidence-driven.
 
 Rules:
-- Your ONLY source of facts is the WEB SEARCH RESULTS provided. Do NOT make \
-up facts or use your training data. If the search results don't cover \
-something, say so.
-- Cite specific findings from the search results: mention titles, names, \
-numbers, and dates you see in the results.
+- Your ONLY source of facts is the articles provided below. Do NOT make up \
+facts or use your training data.
+- Naturally reference article titles and news sources when citing facts, \
+e.g. "as reported by Financial Express" or "the Republic World piece noted".
+- NEVER say "search results", "web search", or "the research shows". Instead \
+refer to specific articles or news outlets by name.
 - Keep each turn to 3-4 sentences MAX. Be concise and punchy.
 - No bullet points, no URLs, no markdown. Speak as if you are on a podcast.
-- Acknowledge the other speaker briefly, then make ONE key point grounded \
-in the search results.
+- Acknowledge the other speaker briefly, then make ONE key point.
 - Use contractions and a conversational tone."""
 
-STUDENT_SYSTEM = """\
+EXPERT_SYSTEM_HI = """\
+Aap ek Expert ho ek do-logon ki voice discussion podcast mein. Aap precise, \
+analytical, aur evidence-driven ho.
+
+Rules:
+- Aapka SIRF source hai neeche diye gaye articles. Apne se facts mat banao.
+- Facts bolte waqt naturally article titles aur news sources ka naam lo, \
+jaise "Financial Express ke mutabiq" ya "Republic World ki report mein".
+- KABHI mat bolo "search results", "web search", ya "research shows". \
+Specific articles ya news outlets ka naam lo.
+- Har turn mein 3-4 sentences MAX. Concise aur punchy raho.
+- Hindi mein bolo, natural conversational Hinglish style mein. Jaise podcast \
+pe baat kar rahe ho.
+- Dusre speaker ki baat briefly acknowledge karo, phir EK key point banao."""
+
+STUDENT_SYSTEM_EN = """\
 You are the Curious Thinker in a two-person voice discussion podcast. You are \
 exploratory, creative, and love to ask probing questions.
 
 Rules:
-- Your ONLY source of facts is the WEB SEARCH RESULTS provided. Do NOT make \
-up facts or use your training data. Build on what the search results say.
-- When you reference a fact, tie it back to a specific search result.
+- Your ONLY source of facts is the articles provided below. Do NOT make up \
+facts. Build on what the articles say.
+- Naturally reference article titles and news sources when citing facts.
+- NEVER say "search results", "web search", or "the research shows". Instead \
+refer to specific articles or news outlets by name.
 - Keep each turn to 3-4 sentences MAX. Be concise and punchy.
 - No bullet points, no URLs, no markdown. Speak as if you are on a podcast.
 - Sometimes agree, sometimes push back. Make ONE point per turn.
-- Ask a sharp "what if" question or raise one counterpoint based on the \
-search results.
+- Ask a sharp "what if" question or raise one counterpoint.
 - Use contractions and a conversational tone."""
+
+STUDENT_SYSTEM_HI = """\
+Aap ek Curious Thinker ho ek do-logon ki voice discussion podcast mein. Aap \
+exploratory, creative ho aur sharp sawaal poochte ho.
+
+Rules:
+- Aapka SIRF source hai neeche diye gaye articles. Apne se facts mat banao.
+- Facts bolte waqt naturally article titles aur news sources ka naam lo.
+- KABHI mat bolo "search results", "web search", ya "research shows". \
+Specific articles ya news outlets ka naam lo.
+- Har turn mein 3-4 sentences MAX. Concise aur punchy raho.
+- Hindi mein bolo, natural conversational Hinglish style mein. Jaise podcast \
+pe baat kar rahe ho.
+- Kabhi agree karo, kabhi push back karo. Har turn mein EK point banao.
+- Ek sharp "what if" sawaal ya counterpoint uthao."""
+
+EXPERT_SYSTEM = EXPERT_SYSTEM_HI if LANGUAGE == "hi" else EXPERT_SYSTEM_EN
+STUDENT_SYSTEM = STUDENT_SYSTEM_HI if LANGUAGE == "hi" else STUDENT_SYSTEM_EN
 
 # ---------------------------------------------------------------------------
 # xAI Grok TTS voices (Ara, Rex, Sal, Eve, Leo)
@@ -191,9 +227,9 @@ async def run_discussion(
             search_context = "\n".join(search_parts)
     except Exception as exc:
         logger.warning(f"Keenable search failed: {exc}")
-        search_context = "(No web search results available.)"
+        search_context = "(No articles available.)"
 
-    base_context = f"TOPIC: {topic}\n\nFULL ARTICLE CONTENT FROM WEB:\n{search_context}"
+    base_context = f"TOPIC: {topic}\n\nNEWS ARTICLES:\n{search_context}"
 
     # ── 2. Opening narration ─────────────────────────────────────────────
     await task.queue_frames([
@@ -223,6 +259,8 @@ async def run_discussion(
     ]
     student_messages: list[dict] = [
         {"role": "system", "content": STUDENT_SYSTEM},
+        {"role": "user", "content": base_context},
+        {"role": "assistant", "content": "Got it, I've reviewed the background research. Ready to discuss."},
     ]
 
     # ── 4. Turn loop ─────────────────────────────────────────────────────
@@ -336,14 +374,48 @@ async def run_discussion(
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     logger.info("Starting Voice PeerCoT bot")
 
-    topic = os.environ.get("PEERCOT_TOPIC", DEFAULT_TOPIC)
+    topic = os.environ.get("PEERCOT_TOPIC", "")
+
+    # If no topic set, pull trending questions from Polymarket
+    if not topic:
+        try:
+            import httpx as _httpx
+
+            async with _httpx.AsyncClient(timeout=15.0) as pm_http:
+                pm_resp = await pm_http.get(
+                    "https://gamma-api.polymarket.com/markets",
+                    params={
+                        "limit": 5,
+                        "active": "true",
+                        "closed": "false",
+                        "order": "volume24hr",
+                        "ascending": "false",
+                    },
+                )
+                pm_resp.raise_for_status()
+                markets = pm_resp.json()
+                # Pick the top trending question as the topic
+                if markets:
+                    topic = markets[0].get("question", DEFAULT_TOPIC)
+                    logger.info(f"Polymarket trending topic: {topic}")
+                else:
+                    topic = DEFAULT_TOPIC
+        except Exception as exc:
+            logger.warning(f"Polymarket fetch failed: {exc}")
+            topic = DEFAULT_TOPIC
+
+    if not topic:
+        topic = DEFAULT_TOPIC
     num_turns = int(os.environ.get("PEERCOT_TURNS", str(DEFAULT_TURNS)))
     llm_client, model = _make_llm_client()
     search_client = KeenableSearchClient()
 
+    from pipecat.transcriptions.language import Language
+
+    tts_language = Language.HI if LANGUAGE == "hi" else Language.EN
     tts = XAIHttpTTSService(
         api_key=os.environ["XAI_API_KEY"],
-        settings=XAIHttpTTSService.Settings(voice=EXPERT_VOICE),
+        settings=XAIHttpTTSService.Settings(voice=EXPERT_VOICE, language=tts_language),
     )
 
     pipeline = Pipeline([tts, transport.output()])

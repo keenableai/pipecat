@@ -15,14 +15,20 @@ into two podcast-style speakers with distinct Grok voices:
 
 ## How it works
 
-1. On client connect, Keenable searches the web for the chosen topic.
-2. The Expert delivers an opening analysis grounded in search results.
-3. The Curious Thinker responds — sometimes agreeing, sometimes pushing back.
-4. They alternate for *N* turns (default 4), each seeing the other's
+1. If no topic is set, the bot pulls the **top trending question from
+   Polymarket** as the discussion topic.
+2. **Keenable searches** the topic and **fetches full article content** from
+   all result URLs via `/v1/fetch`.
+3. The Expert delivers an opening analysis grounded in the articles,
+   naturally citing news sources by name.
+4. The Curious Thinker responds — sometimes agreeing, sometimes pushing back,
+   always grounded in the same articles.
+5. They alternate for *N* turns (default 4), each seeing the other's
    previous responses.
-5. The Expert wraps up with a closing remark.
+6. The Expert wraps up with a closing remark.
 
 All speech uses xAI TTS with voice switching (Rex/Eve) between speakers.
+Supports Hindi (Hinglish) via `PEERCOT_LANGUAGE=hi`.
 
 ## Required environment variables
 
@@ -39,21 +45,29 @@ The `XAI_API_KEY` is used for both the LLM (Grok) and TTS (xAI voices).
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PEERCOT_TOPIC` | `the future of AI agents` | Discussion topic |
+| `PEERCOT_TOPIC` | *(Polymarket trending)* | Discussion topic. If unset, pulls from Polymarket |
 | `PEERCOT_MODEL` | `grok-3-fast` | LLM model override |
 | `PEERCOT_TURNS` | `4` | Number of Expert/Student exchanges |
+| `PEERCOT_LANGUAGE` | `en` | Language: `en` (English) or `hi` (Hindi/Hinglish) |
 
 ## Run
 
-From the repo root:
-
 ```bash
+git clone https://github.com/keenableai/pipecat.git
+cd pipecat
 uv sync --group dev --all-extras --no-extra gstreamer --no-extra local
 
 export XAI_API_KEY=...
 export KEENABLE_API_KEY=...
 
-PEERCOT_TOPIC="quantum computing breakthroughs" \
+# Auto-pick trending Polymarket topic:
+uv run python examples/peercot-voice/bot.py -t webrtc
+
+# Or set a specific topic:
+PEERCOT_TOPIC="2026 NBA Champion" uv run python examples/peercot-voice/bot.py -t webrtc
+
+# Hindi mode:
+PEERCOT_TOPIC="Modi Indian elections 2026" PEERCOT_LANGUAGE=hi \
     uv run python examples/peercot-voice/bot.py -t webrtc
 ```
 
@@ -62,28 +76,26 @@ Open **http://localhost:7860** in your browser and listen.
 ## Architecture
 
 ```
-                          +------------------+
-                          |  Keenable Search |
-                          +--------+---------+
-                                   |
-                                   v
-+-----------+    +-------------------------------------+    +-----------+
-| Grok (Expert) <--->  Orchestration Loop  <---> Grok (Student) |
-+-----------+    +-------------------------------------+    +-----------+
-                          |                  |
-                  TTSUpdateSettings   TTSSpeakFrame
-                          |                  v
-                   +------------+     +-------------+
-                   | xAI TTS    | --> | Transport   |
-                   | Rex / Eve  |     | (WebRTC)    |
-                   +------------+     +-------------+
-                                            |
-                                         Listener
+Polymarket API ──(topic)──> Keenable Search + Fetch
+                                    |
+                              Full articles
+                                    |
+                                    v
+    Grok (Expert, temp 0.3) <── Orchestration Loop ──> Grok (Student, temp 0.9)
+                                    |
+                          TTSUpdateSettings + TTSSpeakFrame
+                                    |
+                                    v
+                             xAI TTS (Rex / Eve)
+                                    |
+                                    v
+                          WebRTC Transport ──> Browser
 ```
 
-The pipeline itself is minimal (`TTS -> transport.output()`). The
-orchestration loop calls the Grok API directly (via the `openai` SDK) and
-queues `TTSSpeakFrame` + `TTSUpdateSettingsFrame` pairs to alternate voices.
+Minimal pipecat pipeline (`TTS -> transport.output()`). The orchestration
+loop calls the Grok API directly (via the `openai` SDK), queues speech
+frames to alternate voices. Keenable fetches full page content from each
+search result URL so agents discuss real article text, not just snippets.
 
 ## References
 
@@ -93,3 +105,4 @@ queues `TTSSpeakFrame` + `TTSUpdateSettingsFrame` pairs to alternate voices.
   of Large Language Models.
 - [Keenable API docs](https://keenable.ai/docs/api)
 - [Grok x Keenable latency lab](https://grok.keenable.ai)
+- [Polymarket API](https://docs.polymarket.com)
