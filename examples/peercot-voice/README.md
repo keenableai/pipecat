@@ -6,12 +6,12 @@ grounded by live web search via the [Keenable API](https://keenable.ai/docs/api)
 Inspired by **PeerCoT** (Chaturvedi et al., ICLR 2026 Workshop on Logical
 Reasoning of LLMs) — a structured multi-agent Chain-of-Thought collaboration
 protocol. The paper's Expert and Curious Student personas are adapted here
-into two podcast-style speakers with distinct voices:
+into two podcast-style speakers with distinct Grok voices:
 
-| Persona | Temperature | Cartesia voice | Role |
+| Persona | Temperature | Grok voice | Role |
 | --- | --- | --- | --- |
-| **Expert** | 0.3 | Narrator (male) | Precise, analytical, evidence-driven |
-| **Curious Thinker** | 0.9 | British Reading Lady | Exploratory, probing, creative |
+| **Expert** | 0.3 | Rex | Precise, analytical, evidence-driven |
+| **Curious Thinker** | 0.9 | Eve | Exploratory, probing, creative |
 
 ## How it works
 
@@ -22,26 +22,25 @@ into two podcast-style speakers with distinct voices:
    previous responses.
 5. The Expert wraps up with a closing remark.
 
-All speech is streamed through Cartesia TTS with voice switching between
-speakers.
+All speech uses xAI TTS with voice switching (Rex/Eve) between speakers.
 
 ## Required environment variables
 
+Only **two** API keys needed:
+
 | Variable | Where to get it |
 | --- | --- |
+| `XAI_API_KEY` | https://console.x.ai |
 | `KEENABLE_API_KEY` | https://keenable.ai/console |
-| `CARTESIA_API_KEY` | https://play.cartesia.ai |
-| One of `XAI_API_KEY`, `GROQ_API_KEY`, or `OPENAI_API_KEY` | See below |
 
-**LLM provider priority:** xAI Grok > Groq > OpenAI. The bot auto-detects
-which key is set and picks the right base URL and default model.
+The `XAI_API_KEY` is used for both the LLM (Grok) and TTS (xAI voices).
 
 ## Optional environment variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PEERCOT_TOPIC` | `the future of AI agents` | Discussion topic |
-| `PEERCOT_MODEL` | auto-detected | LLM model override |
+| `PEERCOT_MODEL` | `grok-3-fast` | LLM model override |
 | `PEERCOT_TURNS` | `4` | Number of Expert/Student exchanges |
 
 ## Run
@@ -50,34 +49,15 @@ From the repo root:
 
 ```bash
 uv sync --group dev --all-extras --no-extra gstreamer --no-extra local
-PEERCOT_TOPIC="quantum computing breakthroughs" \
-    uv run python examples/peercot-voice/bot.py
-```
 
-The pipecat runner prints a connection URL. Open it in a browser and listen.
-
-## Switching LLM providers
-
-**xAI Grok** (default when `XAI_API_KEY` is set):
-
-```bash
 export XAI_API_KEY=...
-export PEERCOT_MODEL=grok-3-fast   # or grok-3, grok-3-mini
+export KEENABLE_API_KEY=...
+
+PEERCOT_TOPIC="quantum computing breakthroughs" \
+    uv run python examples/peercot-voice/bot.py -t webrtc
 ```
 
-**Groq + Llama 3.3 70B** (OSS-friendly):
-
-```bash
-export GROQ_API_KEY=...
-export PEERCOT_MODEL=llama-3.3-70b-versatile
-```
-
-**OpenAI**:
-
-```bash
-export OPENAI_API_KEY=...
-export PEERCOT_MODEL=gpt-4o
-```
+Open **http://localhost:7860** in your browser and listen.
 
 ## Architecture
 
@@ -88,22 +68,21 @@ export PEERCOT_MODEL=gpt-4o
                                    |
                                    v
 +-----------+    +-------------------------------------+    +-----------+
-| LLM (Expert) <--->  Orchestration Loop  <---> LLM (Student) |
+| Grok (Expert) <--->  Orchestration Loop  <---> Grok (Student) |
 +-----------+    +-------------------------------------+    +-----------+
                           |                  |
                   TTSUpdateSettings   TTSSpeakFrame
-                          |                  |
-                          v                  v
+                          |                  v
                    +------------+     +-------------+
-                   | Cartesia TTS | --> | Transport   |
-                   | (voice swap) |     | (WebRTC)    |
+                   | xAI TTS    | --> | Transport   |
+                   | Rex / Eve  |     | (WebRTC)    |
                    +------------+     +-------------+
                                             |
                                          Listener
 ```
 
 The pipeline itself is minimal (`TTS -> transport.output()`). The
-orchestration loop calls the LLM API directly (via the `openai` SDK) and
+orchestration loop calls the Grok API directly (via the `openai` SDK) and
 queues `TTSSpeakFrame` + `TTSUpdateSettingsFrame` pairs to alternate voices.
 
 ## References

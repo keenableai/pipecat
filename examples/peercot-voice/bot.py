@@ -10,7 +10,7 @@ Implements a voice version of PeerCoT (Chaturvedi et al., ICLR 2026 Workshop on
 Logical Reasoning of LLMs) where two personas -- an Expert and a Curious
 Thinker -- hold a structured multi-turn discussion about a chosen topic.
 Each turn is grounded by live web results from the Keenable API, and the
-two speakers use distinct Cartesia TTS voices so the listener can follow
+two speakers use distinct xAI TTS voices so the listener can follow
 who is talking.
 
 The architecture is deliberately simple: a minimal pipecat pipeline
@@ -18,22 +18,21 @@ The architecture is deliberately simple: a minimal pipecat pipeline
 orchestration loop drives the conversation by alternating LLM calls and
 queuing ``TTSSpeakFrame`` / ``TTSUpdateSettingsFrame`` pairs.
 
-Required environment variables:
+Only two API keys required:
 
+- ``XAI_API_KEY``       -- https://console.x.ai  (used for both LLM and TTS)
 - ``KEENABLE_API_KEY``  -- https://keenable.ai/console
-- ``CARTESIA_API_KEY``  -- https://play.cartesia.ai
-- One of ``XAI_API_KEY``, ``GROQ_API_KEY``, or ``OPENAI_API_KEY``
 
 Optional:
 
 - ``PEERCOT_TOPIC``  -- discussion topic (default: "the future of AI agents")
-- ``PEERCOT_MODEL``  -- LLM model name (auto-detected from API key)
+- ``PEERCOT_MODEL``  -- LLM model name (default: grok-3-fast)
 - ``PEERCOT_TURNS``  -- number of back-and-forth exchanges (default: 4)
 
 Run with::
 
     PEERCOT_TOPIC="quantum computing breakthroughs" \
-        uv run python examples/peercot-voice/bot.py
+        uv run python examples/peercot-voice/bot.py -t webrtc
 """
 
 import asyncio
@@ -49,8 +48,8 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
-from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.keenable.search import KeenableSearchClient
+from pipecat.services.xai.tts import XAIHttpTTSService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
@@ -87,11 +86,11 @@ Rules:
 - Use contractions and a conversational tone."""
 
 # ---------------------------------------------------------------------------
-# Cartesia voice IDs
+# xAI Grok TTS voices (Ara, Rex, Sal, Eve, Leo)
 # ---------------------------------------------------------------------------
 
-EXPERT_VOICE = "c45bc5ec-dc68-4feb-8829-6e6b2748095d"   # Narrator (male)
-STUDENT_VOICE = "71a7ad14-091c-4e8e-a314-022ece01c121"  # British Reading Lady
+EXPERT_VOICE = "Rex"   # Confident, authoritative
+STUDENT_VOICE = "Eve"  # Warm, conversational
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -117,31 +116,13 @@ transport_params = {
 
 
 def _make_llm_client() -> tuple[AsyncOpenAI, str]:
-    """Return ``(client, model)`` based on available API keys.
-
-    Priority: xAI Grok > Groq > OpenAI.
-    """
-    if os.environ.get("XAI_API_KEY"):
-        client = AsyncOpenAI(
-            api_key=os.environ["XAI_API_KEY"],
-            base_url="https://api.x.ai/v1",
-        )
-        model = os.environ.get("PEERCOT_MODEL", "grok-3-fast")
-        logger.info(f"Using xAI Grok ({model})")
-        return client, model
-
-    if os.environ.get("GROQ_API_KEY"):
-        client = AsyncOpenAI(
-            api_key=os.environ["GROQ_API_KEY"],
-            base_url="https://api.groq.com/openai/v1",
-        )
-        model = os.environ.get("PEERCOT_MODEL", "llama-3.3-70b-versatile")
-        logger.info(f"Using Groq ({model})")
-        return client, model
-
-    client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    model = os.environ.get("PEERCOT_MODEL", "gpt-4o")
-    logger.info(f"Using OpenAI ({model})")
+    """Return ``(client, model)`` using xAI Grok."""
+    api_key = os.environ.get("XAI_API_KEY")
+    if not api_key:
+        raise ValueError("XAI_API_KEY is required — get one at https://console.x.ai")
+    client = AsyncOpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+    model = os.environ.get("PEERCOT_MODEL", "grok-3-fast")
+    logger.info(f"Using xAI Grok ({model})")
     return client, model
 
 
@@ -178,7 +159,7 @@ async def run_discussion(
     # ── 2. Opening narration ─────────────────────────────────────────────
     await task.queue_frames([
         TTSUpdateSettingsFrame(
-            delta=CartesiaTTSService.Settings(voice=EXPERT_VOICE),
+            delta=XAIHttpTTSService.Settings(voice=EXPERT_VOICE),
         ),
         TTSSpeakFrame(
             text=(
@@ -250,7 +231,7 @@ async def run_discussion(
 
         await task.queue_frames([
             TTSUpdateSettingsFrame(
-                delta=CartesiaTTSService.Settings(voice=EXPERT_VOICE),
+                delta=XAIHttpTTSService.Settings(voice=EXPERT_VOICE),
             ),
             TTSSpeakFrame(text=expert_text),
         ])
@@ -286,7 +267,7 @@ async def run_discussion(
 
         await task.queue_frames([
             TTSUpdateSettingsFrame(
-                delta=CartesiaTTSService.Settings(voice=STUDENT_VOICE),
+                delta=XAIHttpTTSService.Settings(voice=STUDENT_VOICE),
             ),
             TTSSpeakFrame(text=student_text),
         ])
@@ -294,7 +275,7 @@ async def run_discussion(
     # ── 5. Closing ───────────────────────────────────────────────────────
     await task.queue_frames([
         TTSUpdateSettingsFrame(
-            delta=CartesiaTTSService.Settings(voice=EXPERT_VOICE),
+            delta=XAIHttpTTSService.Settings(voice=EXPERT_VOICE),
         ),
         TTSSpeakFrame(
             text=(
@@ -321,9 +302,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     llm_client, model = _make_llm_client()
     search_client = KeenableSearchClient()
 
-    tts = CartesiaTTSService(
-        api_key=os.environ["CARTESIA_API_KEY"],
-        settings=CartesiaTTSService.Settings(voice=EXPERT_VOICE),
+    tts = XAIHttpTTSService(
+        api_key=os.environ["XAI_API_KEY"],
+        settings=XAIHttpTTSService.Settings(voice=EXPERT_VOICE),
     )
 
     pipeline = Pipeline([tts, transport.output()])
