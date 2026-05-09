@@ -144,18 +144,56 @@ async def run_discussion(
 
     logger.info(f"Discussion topic: {topic}")
 
-    # ── 1. Keenable web search ───────────────────────────────────────────
+    # ── 1. Keenable web search + fetch full content ────────────────────
     try:
-        results = await search_client.search(topic)
-        search_context = "\n".join(
-            f"- {r.title}: {r.description}" for r in results
-        )
-        logger.info(f"Keenable returned {len(results)} result(s)")
+        import httpx
+
+        headers = {
+            "X-API-Key": os.environ["KEENABLE_API_KEY"],
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            # Search
+            resp = await http.post(
+                "https://api.keenable.ai/v1/search",
+                json={"query": topic},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            raw_results = resp.json().get("results", [])
+            logger.info(f"Keenable search returned {len(raw_results)} result(s)")
+
+            # Fetch full content for top 3 results
+            search_parts = []
+            for r in raw_results[:3]:
+                url = r.get("url", "")
+                title = r.get("title", "")
+                try:
+                    fetch_resp = await http.get(
+                        "https://api.keenable.ai/v1/fetch",
+                        params={"url": url},
+                        headers={"X-API-Key": os.environ["KEENABLE_API_KEY"]},
+                    )
+                    fetch_resp.raise_for_status()
+                    content = fetch_resp.json().get("content", "")
+                    # Truncate to ~2000 chars per article to fit context
+                    content = content[:2000]
+                    search_parts.append(
+                        f"=== ARTICLE: {title} ===\n{content}\n"
+                    )
+                    logger.info(f"Fetched {len(content)} chars from {title}")
+                except Exception as fetch_exc:
+                    logger.warning(f"Fetch failed for {url}: {fetch_exc}")
+                    snippet = r.get("snippet", r.get("description", ""))
+                    search_parts.append(f"=== ARTICLE: {title} ===\n{snippet}\n")
+
+            search_context = "\n".join(search_parts)
     except Exception as exc:
         logger.warning(f"Keenable search failed: {exc}")
         search_context = "(No web search results available.)"
 
-    base_context = f"TOPIC: {topic}\n\nWEB SEARCH RESULTS:\n{search_context}"
+    base_context = f"TOPIC: {topic}\n\nFULL ARTICLE CONTENT FROM WEB:\n{search_context}"
 
     # ── 2. Opening narration ─────────────────────────────────────────────
     await task.queue_frames([
