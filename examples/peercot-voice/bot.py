@@ -164,9 +164,9 @@ async def run_discussion(
             raw_results = resp.json().get("results", [])
             logger.info(f"Keenable search returned {len(raw_results)} result(s)")
 
-            # Fetch full content for top 3 results
+            # Fetch full content for all results
             search_parts = []
-            for r in raw_results[:3]:
+            for r in raw_results:
                 url = r.get("url", "")
                 title = r.get("title", "")
                 try:
