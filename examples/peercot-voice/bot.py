@@ -119,8 +119,89 @@ pe baat kar rahe ho.
 - Kabhi agree karo, kabhi push back karo. Har turn mein EK point banao.
 - Ek sharp "what if" sawaal ya counterpoint uthao."""
 
-EXPERT_SYSTEM = EXPERT_SYSTEM_HI if LANGUAGE == "hi" else EXPERT_SYSTEM_EN
-STUDENT_SYSTEM = STUDENT_SYSTEM_HI if LANGUAGE == "hi" else STUDENT_SYSTEM_EN
+MODE = os.environ.get("PEERCOT_MODE", "discuss")  # "discuss" or "debate"
+
+# ── Debate mode prompts (two experts take opposing sides) ────────────────
+
+BULL_SYSTEM_EN = """\
+You are an expert in a two-person voice debate podcast. You believe the \
+answer to today's question is YES and argue that position with evidence.
+
+Rules:
+- Your ONLY source of facts is the articles provided below. Do NOT make up \
+facts. Highlight evidence that supports your position.
+- Naturally mention article titles and news outlets when citing facts, e.g. \
+"as Reuters reported" or "the Bloomberg piece highlights". Let citations \
+flow naturally in conversation.
+- NEVER say "search results", "web search", "the research shows", or \
+"according to the articles".
+- NEVER describe yourself as "optimistic", "bullish", "in the yes camp", or \
+reveal your assigned position. Just argue your case with facts. Let the \
+listener figure out your stance from your arguments.
+- Keep each turn to 3-4 sentences MAX. Be concise and punchy.
+- No bullet points, no URLs, no markdown. Speak naturally like a podcast.
+- Engage with the other expert's points, then make your case.
+- Use contractions and a warm, conversational tone."""
+
+BULL_SYSTEM_HI = """\
+Aap ek expert ho ek do-logon ki voice debate podcast mein. Aap believe \
+karte ho ki aaj ke sawaal ka jawaab YES hai aur evidence ke saath argue karo.
+
+Rules:
+- Aapka SIRF source hai neeche diye gaye articles. Apne se facts mat banao.
+- Facts bolte waqt naturally article titles aur news outlets ka naam lo.
+- KABHI mat bolo "search results", "web search", ya "research shows".
+- KABHI apne aap ko "optimistic", "bullish", "yes camp mein" mat bolo. \
+Sirf facts se argue karo. Listener khud samjhe.
+- Har turn mein 3-4 sentences MAX. Concise aur punchy raho.
+- Hindi mein bolo, natural conversational Hinglish style mein.
+- Dusre expert ki baat se engage karo, phir apna case banao."""
+
+BEAR_SYSTEM_EN = """\
+You are an expert in a two-person voice debate podcast. You believe the \
+answer to today's question is NO and argue that position with evidence.
+
+Rules:
+- Your ONLY source of facts is the articles provided below. Do NOT make up \
+facts. Highlight evidence that supports your position.
+- Naturally mention article titles and news outlets when citing facts, e.g. \
+"but the Financial Times piece paints a different picture". Let citations \
+flow naturally in conversation.
+- NEVER say "search results", "web search", "the research shows", or \
+"according to the articles".
+- NEVER describe yourself as "skeptical", "bearish", "in the no camp", or \
+reveal your assigned position. Just argue your case with facts. Let the \
+listener figure out your stance from your arguments.
+- Keep each turn to 3-4 sentences MAX. Be concise and punchy.
+- No bullet points, no URLs, no markdown. Speak naturally like a podcast.
+- Engage with the other expert's points, then poke holes or offer a \
+counter-narrative.
+- Use contractions and a conversational tone."""
+
+BEAR_SYSTEM_HI = """\
+Aap ek expert ho ek do-logon ki voice debate podcast mein. Aap believe \
+karte ho ki aaj ke sawaal ka jawaab NO hai aur evidence ke saath argue karo.
+
+Rules:
+- Aapka SIRF source hai neeche diye gaye articles. Apne se facts mat banao.
+- Facts bolte waqt naturally article titles aur news outlets ka naam lo.
+- KABHI mat bolo "search results", "web search", ya "research shows".
+- KABHI apne aap ko "skeptical", "bearish", "no camp mein" mat bolo. \
+Sirf facts se argue karo. Listener khud samjhe.
+- Har turn mein 3-4 sentences MAX. Concise aur punchy raho.
+- Hindi mein bolo, natural conversational Hinglish style mein.
+- Dusre expert ki baat se engage karo, phir holes nikalo ya counter do."""
+
+if MODE == "debate":
+    AGENT_A_SYSTEM = BULL_SYSTEM_HI if LANGUAGE == "hi" else BULL_SYSTEM_EN
+    AGENT_B_SYSTEM = BEAR_SYSTEM_HI if LANGUAGE == "hi" else BEAR_SYSTEM_EN
+    AGENT_A_LABEL = "Yes Advocate"
+    AGENT_B_LABEL = "No Advocate"
+else:
+    AGENT_A_SYSTEM = EXPERT_SYSTEM_HI if LANGUAGE == "hi" else EXPERT_SYSTEM_EN
+    AGENT_B_SYSTEM = STUDENT_SYSTEM_HI if LANGUAGE == "hi" else STUDENT_SYSTEM_EN
+    AGENT_A_LABEL = "Expert"
+    AGENT_B_LABEL = "Curious Thinker"
 
 # ---------------------------------------------------------------------------
 # xAI Grok TTS voices (Ara, Rex, Sal, Eve, Leo)
@@ -232,51 +313,84 @@ async def run_discussion(
     base_context = f"TOPIC: {topic}\n\nNEWS ARTICLES:\n{search_context}"
 
     # ── 2. Opening narration ─────────────────────────────────────────────
+    if MODE == "debate":
+        opener = (
+            f"Welcome to Voice PeerCoT. "
+            f"Today's question: {topic}. "
+            f"Two experts will weigh in with different perspectives. "
+            f"Let's begin."
+        )
+        a_opener = "Make your opening argument FOR the proposition."
+        b_prompt_first = lambda a_text: (
+            f"{base_context}\n\n"
+            f"The Yes Advocate opens with:\n\n{a_text}\n\n"
+            "Make your opening argument AGAINST the proposition."
+        )
+        b_prompt_next = lambda a_text: (
+            f"The Yes Advocate responds:\n\n{a_text}\n\n"
+            "Counter their argument."
+        )
+        a_prompt_next = lambda b_text: (
+            f"The No Advocate responds:\n\n{b_text}\n\n"
+            "Counter their argument."
+        )
+    else:
+        opener = (
+            f"Welcome to Voice PeerCoT. "
+            f"Today we're discussing: {topic}. "
+            f"The Expert speaks first, followed by the Curious Thinker. "
+            f"Let's begin."
+        )
+        a_opener = "Share your opening analysis of this topic."
+        b_prompt_first = lambda a_text: (
+            f"{base_context}\n\n"
+            f"The {AGENT_A_LABEL} opens with:\n\n{a_text}\n\n"
+            "Respond to their analysis."
+        )
+        b_prompt_next = lambda a_text: (
+            f"The {AGENT_A_LABEL} responds:\n\n{a_text}\n\n"
+            "Continue the discussion."
+        )
+        a_prompt_next = lambda b_text: (
+            f"The {AGENT_B_LABEL} responds:\n\n{b_text}\n\n"
+            "Continue the discussion."
+        )
+
     await task.queue_frames([
         TTSUpdateSettingsFrame(
             delta=XAIHttpTTSService.Settings(voice=EXPERT_VOICE),
         ),
-        TTSSpeakFrame(
-            text=(
-                f"Welcome to Voice PeerCoT. "
-                f"Today we're discussing: {topic}. "
-                f"The Expert speaks first, followed by the Curious Thinker. "
-                f"Let's begin."
-            ),
-        ),
+        TTSSpeakFrame(text=opener),
     ])
 
     # ── 3. Per-agent message histories ───────────────────────────────────
-    expert_messages: list[dict] = [
-        {"role": "system", "content": EXPERT_SYSTEM},
+    agent_a_messages: list[dict] = [
+        {"role": "system", "content": AGENT_A_SYSTEM},
         {
             "role": "user",
-            "content": (
-                f"{base_context}\n\n"
-                "Share your opening analysis of this topic."
-            ),
+            "content": f"{base_context}\n\n{a_opener}",
         },
     ]
-    student_messages: list[dict] = [
-        {"role": "system", "content": STUDENT_SYSTEM},
+    agent_b_messages: list[dict] = [
+        {"role": "system", "content": AGENT_B_SYSTEM},
         {"role": "user", "content": base_context},
-        {"role": "assistant", "content": "Got it, I've reviewed the background research. Ready to discuss."},
+        {"role": "assistant", "content": "Got it, I've reviewed the material. Ready."},
     ]
 
     # ── 4. Turn loop ─────────────────────────────────────────────────────
     for turn in range(num_turns):
         logger.info(f"Turn {turn + 1}/{num_turns}")
 
-        # -- Expert turn --------------------------------------------------
+        # -- Agent A turn -------------------------------------------------
         try:
-            expert_resp = await llm_client.chat.completions.create(
+            a_resp = await llm_client.chat.completions.create(
                 model=model,
-                messages=expert_messages,
+                messages=agent_a_messages,
                 temperature=0.3,
             )
-            expert_text = expert_resp.choices[0].message.content
+            a_text = a_resp.choices[0].message.content
         except Exception as exc:
-            logger.error(f"Expert LLM call failed: {exc}")
+            logger.error(f"{AGENT_A_LABEL} LLM call failed: {exc}")
             await task.queue_frames([
                 TTSSpeakFrame(
                     text="I'm sorry, something went wrong and I can't continue."
@@ -285,44 +399,37 @@ async def run_discussion(
             ])
             return
 
-        expert_messages.append({"role": "assistant", "content": expert_text})
+        agent_a_messages.append({"role": "assistant", "content": a_text})
 
-        # Feed Expert's words into the Student's context
+        # Feed A's words into B's context
         if turn == 0:
-            student_messages.append({
+            agent_b_messages.append({
                 "role": "user",
-                "content": (
-                    f"{base_context}\n\n"
-                    f"The Expert opens with:\n\n{expert_text}\n\n"
-                    "Respond to their analysis."
-                ),
+                "content": b_prompt_first(a_text),
             })
         else:
-            student_messages.append({
+            agent_b_messages.append({
                 "role": "user",
-                "content": (
-                    f"The Expert responds:\n\n{expert_text}\n\n"
-                    "Continue the discussion."
-                ),
+                "content": b_prompt_next(a_text),
             })
 
         await task.queue_frames([
             TTSUpdateSettingsFrame(
                 delta=XAIHttpTTSService.Settings(voice=EXPERT_VOICE),
             ),
-            TTSSpeakFrame(text=expert_text),
+            TTSSpeakFrame(text=a_text),
         ])
 
-        # -- Student turn -------------------------------------------------
+        # -- Agent B turn -------------------------------------------------
         try:
-            student_resp = await llm_client.chat.completions.create(
+            b_resp = await llm_client.chat.completions.create(
                 model=model,
-                messages=student_messages,
+                messages=agent_b_messages,
                 temperature=0.9,
             )
-            student_text = student_resp.choices[0].message.content
+            b_text = b_resp.choices[0].message.content
         except Exception as exc:
-            logger.error(f"Student LLM call failed: {exc}")
+            logger.error(f"{AGENT_B_LABEL} LLM call failed: {exc}")
             await task.queue_frames([
                 TTSSpeakFrame(
                     text="I'm sorry, something went wrong and I can't continue."
@@ -331,22 +438,19 @@ async def run_discussion(
             ])
             return
 
-        student_messages.append({"role": "assistant", "content": student_text})
+        agent_b_messages.append({"role": "assistant", "content": b_text})
 
-        # Feed Student's words back into the Expert's context
-        expert_messages.append({
+        # Feed B's words back into A's context
+        agent_a_messages.append({
             "role": "user",
-            "content": (
-                f"The Curious Thinker responds:\n\n{student_text}\n\n"
-                "Continue the discussion."
-            ),
+            "content": a_prompt_next(b_text),
         })
 
         await task.queue_frames([
             TTSUpdateSettingsFrame(
                 delta=XAIHttpTTSService.Settings(voice=STUDENT_VOICE),
             ),
-            TTSSpeakFrame(text=student_text),
+            TTSSpeakFrame(text=b_text),
         ])
 
     # ── 5. Closing ───────────────────────────────────────────────────────
