@@ -46,8 +46,6 @@ from pipecat.runner.utils import create_transport
 from pipecat.services.keenable.search import KeenableSearchClient
 from pipecat.services.xai.tts import XAIHttpTTSService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
-from pipecat.transports.daily.transport import DailyParams
-from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 
 load_dotenv(override=True)
 
@@ -221,9 +219,17 @@ DEFAULT_TURNS = 4
 # Transport params
 # ---------------------------------------------------------------------------
 
+def _daily_params():
+    from pipecat.transports.daily.transport import DailyParams
+    return DailyParams(audio_out_enabled=True)
+
+def _twilio_params():
+    from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
+    return FastAPIWebsocketParams(audio_out_enabled=True)
+
 transport_params = {
-    "daily": lambda: DailyParams(audio_out_enabled=True),
-    "twilio": lambda: FastAPIWebsocketParams(audio_out_enabled=True),
+    "daily": _daily_params,
+    "twilio": _twilio_params,
     "webrtc": lambda: TransportParams(audio_out_enabled=True),
 }
 
