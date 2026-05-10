@@ -219,6 +219,10 @@ DEFAULT_TURNS = 4
 # Transport params
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Transport params
+# ---------------------------------------------------------------------------
+
 def _daily_params():
     from pipecat.transports.daily.transport import DailyParams
     return DailyParams(audio_out_enabled=True)
