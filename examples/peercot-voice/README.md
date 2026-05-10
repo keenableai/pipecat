@@ -55,6 +55,7 @@ The `XAI_API_KEY` is used for both the LLM (Grok) and TTS (xAI voices).
 ```bash
 git clone https://github.com/keenableai/pipecat.git
 cd pipecat
+git checkout peercot-voice
 uv sync --group dev --all-extras --no-extra gstreamer --no-extra local
 
 export XAI_API_KEY=...
