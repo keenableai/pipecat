@@ -190,16 +190,21 @@ Sirf facts se argue karo. Listener khud samjhe.
 - Hindi mein bolo, natural conversational Hinglish style mein.
 - Dusre expert ki baat se engage karo, phir holes nikalo ya counter do."""
 
-if MODE == "debate":
-    AGENT_A_SYSTEM = BULL_SYSTEM_HI if LANGUAGE == "hi" else BULL_SYSTEM_EN
-    AGENT_B_SYSTEM = BEAR_SYSTEM_HI if LANGUAGE == "hi" else BEAR_SYSTEM_EN
-    AGENT_A_LABEL = "Yes Advocate"
-    AGENT_B_LABEL = "No Advocate"
-else:
-    AGENT_A_SYSTEM = EXPERT_SYSTEM_HI if LANGUAGE == "hi" else EXPERT_SYSTEM_EN
-    AGENT_B_SYSTEM = STUDENT_SYSTEM_HI if LANGUAGE == "hi" else STUDENT_SYSTEM_EN
-    AGENT_A_LABEL = "Expert"
-    AGENT_B_LABEL = "Curious Thinker"
+def _resolve_personas():
+    """Resolve personas from current env vars (called per session)."""
+    mode = os.environ.get("PEERCOT_MODE", "discuss")
+    lang = os.environ.get("PEERCOT_LANGUAGE", "en")
+    if mode == "debate":
+        a_sys = BULL_SYSTEM_HI if lang == "hi" else BULL_SYSTEM_EN
+        b_sys = BEAR_SYSTEM_HI if lang == "hi" else BEAR_SYSTEM_EN
+        a_label = "Yes Advocate"
+        b_label = "No Advocate"
+    else:
+        a_sys = EXPERT_SYSTEM_HI if lang == "hi" else EXPERT_SYSTEM_EN
+        b_sys = STUDENT_SYSTEM_HI if lang == "hi" else STUDENT_SYSTEM_EN
+        a_label = "Expert"
+        b_label = "Curious Thinker"
+    return a_sys, b_sys, a_label, b_label, mode, lang
 
 # ---------------------------------------------------------------------------
 # xAI Grok TTS voices (Ara, Rex, Sal, Eve, Leo)
@@ -322,8 +327,11 @@ async def run_discussion(
 
     base_context = f"TOPIC: {topic}\n\nNEWS ARTICLES:\n{search_context}"
 
-    # ── 2. Opening narration ─────────────────────────────────────────────
-    if MODE == "debate":
+    # ── 2. Resolve personas fresh from env vars ─────────────────────────
+    AGENT_A_SYSTEM, AGENT_B_SYSTEM, AGENT_A_LABEL, AGENT_B_LABEL, mode, lang = _resolve_personas()
+    logger.info(f"Mode: {mode}, Language: {lang}, A: {AGENT_A_LABEL}, B: {AGENT_B_LABEL}")
+
+    if mode == "debate":
         opener = (
             f"Welcome to Voice PeerCoT. "
             f"Today's question: {topic}. "
@@ -333,15 +341,15 @@ async def run_discussion(
         a_opener = "Make your opening argument FOR the proposition."
         b_prompt_first = lambda a_text: (
             f"{base_context}\n\n"
-            f"The Yes Advocate opens with:\n\n{a_text}\n\n"
+            f"The other expert opens with:\n\n{a_text}\n\n"
             "Make your opening argument AGAINST the proposition."
         )
         b_prompt_next = lambda a_text: (
-            f"The Yes Advocate responds:\n\n{a_text}\n\n"
+            f"The other expert responds:\n\n{a_text}\n\n"
             "Counter their argument."
         )
         a_prompt_next = lambda b_text: (
-            f"The No Advocate responds:\n\n{b_text}\n\n"
+            f"The other expert responds:\n\n{b_text}\n\n"
             "Counter their argument."
         )
     else:
@@ -568,6 +576,112 @@ async def bot(runner_args: RunnerArguments):
 
 
 if __name__ == "__main__":
-    from pipecat.runner.run import main
+    from pipecat.runner.run import app, main
+    from fastapi.responses import HTMLResponse, JSONResponse
+
+    # Shared mutable topic state
+    _current_topic = {"value": os.environ.get("PEERCOT_TOPIC", "")}
+
+    @app.get("/peercot", response_class=HTMLResponse)
+    async def peercot_ui():
+        return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voice PeerCoT</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:#0c0c14;color:#f1f1f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+h1{font-size:1.6rem;margin-bottom:.3rem}
+.sub{color:#9696a8;font-size:.85rem;margin-bottom:2rem}
+.card{background:#14141f;border:1px solid #25253a;border-radius:12px;padding:2rem;width:90%;max-width:500px}
+label{display:block;color:#9696a8;font-size:.8rem;margin-bottom:.4rem}
+input[type=text]{width:100%;padding:.7rem 1rem;background:#1a1a28;border:1px solid #303048;border-radius:8px;color:#f1f1f5;font-size:1rem;outline:none;margin-bottom:1rem}
+input[type=text]:focus{border-color:#4d8aff}
+select{width:100%;padding:.6rem 1rem;background:#1a1a28;border:1px solid #303048;border-radius:8px;color:#f1f1f5;font-size:.9rem;margin-bottom:1rem;outline:none}
+.row{display:flex;gap:.8rem;margin-bottom:1rem}
+.row>*{flex:1}
+button{width:100%;padding:.8rem;background:#005CFF;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;margin-top:.5rem}
+button:hover{background:#0046cc}
+button:disabled{background:#303048;cursor:not-allowed}
+.status{text-align:center;margin-top:1rem;color:#9696a8;font-size:.85rem;min-height:1.2rem}
+.listening{color:#34d399}
+.or{text-align:center;color:#5d5d72;font-size:.8rem;margin:.8rem 0}
+</style>
+</head>
+<body>
+<h1>Voice PeerCoT</h1>
+<p class="sub">Two AI experts debate any topic, grounded in live web search</p>
+<div class="card">
+  <label>Topic</label>
+  <input type="text" id="topic" placeholder="e.g. Will Bitcoin hit 150k by June 2026">
+  <div class="or">or leave empty for trending Polymarket question</div>
+  <div class="row">
+    <div>
+      <label>Mode</label>
+      <select id="mode"><option value="debate">Debate</option><option value="discuss">Discussion</option></select>
+    </div>
+    <div>
+      <label>Language</label>
+      <select id="lang"><option value="en">English</option><option value="hi">Hindi</option></select>
+    </div>
+    <div>
+      <label>Turns</label>
+      <select id="turns"><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select>
+    </div>
+  </div>
+  <button id="go" onclick="startDiscussion()">Start Discussion</button>
+  <div class="status" id="status"></div>
+</div>
+<script>
+async function startDiscussion() {
+  const btn = document.getElementById('go');
+  const status = document.getElementById('status');
+  btn.disabled = true;
+  status.textContent = 'Setting topic...';
+  const topic = document.getElementById('topic').value;
+  const mode = document.getElementById('mode').value;
+  const lang = document.getElementById('lang').value;
+  const turns = document.getElementById('turns').value;
+  try {
+    const r = await fetch('/api/topic', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({topic, mode, language: lang, turns: parseInt(turns)})
+    });
+    if (!r.ok) throw new Error('Failed');
+    status.innerHTML = 'Connecting... <a href="/client/" style="color:#4d8aff">Open audio player</a>';
+    setTimeout(() => { window.open('/client/', '_blank'); }, 500);
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+  }
+  btn.disabled = false;
+}
+document.getElementById('topic').addEventListener('keydown', e => { if(e.key==='Enter') startDiscussion(); });
+</script>
+</body>
+</html>"""
+
+    @app.post("/api/topic")
+    async def set_topic(request: dict):
+        topic = request.get("topic", "")
+        mode = request.get("mode", "debate")
+        lang = request.get("language", "en")
+        turns = request.get("turns", 3)
+        # Update env vars so the next bot() call picks them up
+        if topic:
+            os.environ["PEERCOT_TOPIC"] = topic
+        elif "PEERCOT_TOPIC" in os.environ:
+            del os.environ["PEERCOT_TOPIC"]
+        os.environ["PEERCOT_MODE"] = mode
+        os.environ["PEERCOT_LANGUAGE"] = lang
+        os.environ["PEERCOT_TURNS"] = str(turns)
+        logger.info(f"Topic set: {topic or '(Polymarket)'} mode={mode} lang={lang} turns={turns}")
+        return JSONResponse({"ok": True, "topic": topic or "(Polymarket trending)"})
+
+    @app.get("/", include_in_schema=False)
+    async def redirect_to_peercot():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse("/peercot")
 
     main()
