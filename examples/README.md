@@ -133,6 +133,10 @@ Retrieval-augmented generation, grounding, and long-term memory (Mem0, Gemini).
 
 Miscellaneous features: wake phrases, live translation, service switching, voice switching, and more.
 
+### [`voice-fact-checking/`](./voice-fact-checking/)
+
+Real-time fact-checking of a live conversation/conference transcript: a prompt-driven trigger extracts check-worthy claims as they're spoken, Keenable verifies them on the web, and verdicts render in a custom UI as green/red/amber claim cards. Includes cost/volume controls and a GEPA prompt optimizer.
+
 ## Advanced Usage
 
 ### Customizing Network Settings

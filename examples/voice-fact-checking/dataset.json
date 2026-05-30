@@ -1,0 +1,91 @@
+[
+  {
+    "text": "Welcome everyone, it's great to see such a packed room this morning.",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "I honestly think remote work is the best thing that ever happened to our industry.",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "The Great Wall of China is visible from space with the naked eye.",
+    "should_trigger": true,
+    "claims": ["The Great Wall of China is visible from space with the naked eye"]
+  },
+  {
+    "text": "Our team decided last quarter to move everything to the cloud, and I'm proud of that.",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "Python was first released in 1991 by Guido van Rossum.",
+    "should_trigger": true,
+    "claims": ["Python was first released in 1991 by Guido van Rossum"]
+  },
+  {
+    "text": "So, um, what do you all think we should do about the budget next year?",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "Global EV sales surpassed 14 million units in 2023, up about 35 percent year over year.",
+    "should_trigger": true,
+    "claims": [
+      "Global EV sales surpassed 14 million units in 2023",
+      "Global EV sales grew about 35 percent year over year in 2023"
+    ]
+  },
+  {
+    "text": "Honestly the coffee here is the best I've ever had, you have to try it.",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "The human body has 206 bones, and the femur is the longest one.",
+    "should_trigger": true,
+    "claims": [
+      "The adult human body has 206 bones",
+      "The femur is the longest bone in the human body"
+    ]
+  },
+  {
+    "text": "If we doubled the marketing spend, I bet revenue would go through the roof.",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "Mount Everest is the tallest mountain on Earth at 8,849 meters above sea level.",
+    "should_trigger": true,
+    "claims": ["Mount Everest is 8,849 meters tall above sea level"]
+  },
+  {
+    "text": "Let's take a five minute break and reconvene at the top of the hour.",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "Water boils at 100 degrees Celsius at sea level.",
+    "should_trigger": true,
+    "claims": ["Water boils at 100 degrees Celsius at sea level"]
+  },
+  {
+    "text": "I feel like the second half of the keynote was way stronger than the first.",
+    "should_trigger": false,
+    "claims": []
+  },
+  {
+    "text": "The company was founded in 2009 and now employs over 5,000 people worldwide.",
+    "should_trigger": true,
+    "claims": [
+      "The company was founded in 2009",
+      "The company now employs over 5,000 people worldwide"
+    ]
+  },
+  {
+    "text": "Could you pass me the clicker? I think the slides are frozen.",
+    "should_trigger": false,
+    "claims": []
+  }
+]

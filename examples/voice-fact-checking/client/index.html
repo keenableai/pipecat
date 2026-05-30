@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live Fact-Check</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title">
+        <span class="logo">✓</span>
+        <h1>Live Fact-Check</h1>
+      </div>
+      <div class="controls">
+        <span id="status" class="status idle">disconnected</span>
+        <button id="connect">Connect</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Claims</h2>
+          <span id="empty" class="hint">Start talking — verified claims appear here as you speak.</span>
+        </div>
+        <ul id="claims" class="claims"></ul>
+      </section>
+
+      <aside class="meter">
+        <h2>Volume &amp; cost</h2>
+        <dl>
+          <div><dt>Claims checked</dt><dd id="m-checks">0</dd></div>
+          <div><dt>Web searches</dt><dd id="m-searches">0</dd></div>
+          <div><dt>LLM calls</dt><dd id="m-llm">0</dd></div>
+          <div><dt>Gated out</dt><dd id="m-skipped">0</dd></div>
+          <div class="cost"><dt>Est. cost</dt><dd id="m-cost">$0.0000</dd></div>
+        </dl>
+        <p class="footnote">
+          Triggers are prompt-driven. Tune <code>prompts.py</code> or run
+          <code>gepa_optimize.py</code> to change what gets checked.
+        </p>
+      </aside>
+    </main>
+
+    <audio id="bot-audio" autoplay></audio>
+    <script src="app.js"></script>
+  </body>
+</html>
