@@ -70,11 +70,10 @@ class TestKeenableWebSearchInit(unittest.TestCase):
     """Test KeenableWebSearch initialization and configuration."""
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_default_url(self):
+    def test_default_no_api_key(self):
         from pipecat.services.keenable.search import KeenableWebSearch
 
         search = KeenableWebSearch()
-        assert search._url == "https://api.keenable.ai/mcp"
         assert search._api_key is None
 
     @patch.dict(os.environ, {"KEENABLE_API_KEY": "test-key"})
@@ -84,19 +83,11 @@ class TestKeenableWebSearchInit(unittest.TestCase):
         search = KeenableWebSearch()
         assert search._api_key == "test-key"
 
-    @patch.dict(os.environ, {"KEENABLE_MCP_URL": "https://custom.example.com/mcp"})
-    def test_url_from_env(self):
+    def test_explicit_api_key(self):
         from pipecat.services.keenable.search import KeenableWebSearch
 
-        search = KeenableWebSearch()
-        assert search._url == "https://custom.example.com/mcp"
-
-    def test_explicit_params_override_env(self):
-        from pipecat.services.keenable.search import KeenableWebSearch
-
-        search = KeenableWebSearch(api_key="explicit-key", url="https://other.com/mcp")
+        search = KeenableWebSearch(api_key="explicit-key")
         assert search._api_key == "explicit-key"
-        assert search._url == "https://other.com/mcp"
 
     @patch.dict(os.environ, {"KEENABLE_API_KEY": "  "})
     def test_blank_api_key_treated_as_none(self):
@@ -111,7 +102,7 @@ class TestKeenableWebSearchInit(unittest.TestCase):
         search = KeenableWebSearch()
         headers = search._build_headers()
         assert "User-Agent" in headers
-        assert headers["User-Agent"].startswith("keenable-pipecat/")
+        assert headers["User-Agent"].startswith("pipecat/")
         assert "X-API-Key" not in headers
 
     def test_headers_with_api_key(self):

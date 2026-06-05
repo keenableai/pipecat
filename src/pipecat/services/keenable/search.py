@@ -41,9 +41,8 @@ if TYPE_CHECKING:
     from pipecat.pipeline.llm_switcher import LLMSwitcher
     from pipecat.services.llm_service import LLMService
 
-DEFAULT_MCP_URL = "https://api.keenable.ai/mcp"
+_MCP_URL = "https://api.keenable.ai/mcp"
 API_KEY_ENV_VAR = "KEENABLE_API_KEY"
-MCP_URL_ENV_VAR = "KEENABLE_MCP_URL"
 
 
 def _pipecat_version() -> str:
@@ -93,27 +92,21 @@ class KeenableWebSearch:
         self,
         *,
         api_key: str | None = None,
-        url: str | None = None,
     ) -> None:
         """Initialize the web search wrapper.
 
         Args:
             api_key: API key for higher rate limits. Falls back to
                 ``KEENABLE_API_KEY`` env var. When unset, the free tier is used.
-            url: MCP server URL. Falls back to ``KEENABLE_MCP_URL`` env var,
-                then ``https://api.keenable.ai/mcp``.
         """
         if api_key is None:
             api_key = (os.environ.get(API_KEY_ENV_VAR) or "").strip() or None
-        if url is None:
-            url = (os.environ.get(MCP_URL_ENV_VAR) or "").strip() or DEFAULT_MCP_URL
 
-        self._url = url
         self._api_key = api_key
         self._mcp: Any = None  # MCPClient instance (lazy import)
 
     def _build_headers(self) -> dict[str, str]:
-        headers = {"User-Agent": f"keenable-pipecat/{_pipecat_version()}"}
+        headers = {"User-Agent": f"pipecat/{_pipecat_version()}"}
         if self._api_key:
             headers["X-API-Key"] = self._api_key
         return headers
@@ -131,12 +124,12 @@ class KeenableWebSearch:
 
         self._mcp = MCPClient(
             server_params=StreamableHttpParameters(
-                url=self._url,
+                url=_MCP_URL,
                 headers=self._build_headers(),
             ),
         )
         await self._mcp.start()
-        logger.info(f"KeenableWebSearch: connected to {self._url}")
+        logger.info(f"KeenableWebSearch: connected to {_MCP_URL}")
 
     async def close(self) -> None:
         """Close the MCP connection. Safe to call multiple times."""
