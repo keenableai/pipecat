@@ -241,8 +241,10 @@ class MCPClient(BaseObject):
         try:
             results = await session.call_tool(function_name, arguments=arguments)
         except Exception as e:
-            error_msg = f"Error calling mcp tool {function_name}: {str(e)}"
+            error_msg = f"Error calling MCP tool '{function_name}': {e}"
             logger.error(error_msg)
+            await result_callback(error_msg)
+            return
 
         response = ""
         if results:
@@ -252,8 +254,11 @@ class MCPClient(BaseObject):
                         logger.debug(f"Tool response chunk {i}: {content.text}")
                         response += content.text
                     else:
-                        # logger.debug(f"Non-text result content: '{content}'")
                         pass
+
+                # MCP tools can signal errors via isError on the result
+                if getattr(results, "isError", False):
+                    logger.error(f"MCP tool '{function_name}' returned error: {response}")
             else:
                 logger.error(f"Error getting content from {function_name} results.")
 
@@ -271,7 +276,8 @@ class MCPClient(BaseObject):
             logger.info(f"Tool '{function_name}' completed successfully")
             logger.debug(f"Final response: {response}")
         else:
-            response = "Sorry, could not call the mcp tool"
+            response = "Error: MCP tool returned no content"
+            logger.error(response)
 
         await result_callback(response)
 

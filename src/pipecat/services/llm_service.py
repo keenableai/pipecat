@@ -249,6 +249,7 @@ class LLMService(UserTurnCompletionLLMServiceMixin, AIService, Generic[TAdapter]
         group_parallel_tools: bool = True,
         function_call_timeout_secs: float | None = None,
         enable_async_tool_cancellation: bool = False,
+        web_search: bool = False,
         settings: LLMSettings | None = None,
         **kwargs,
     ):
@@ -267,6 +268,11 @@ class LLMService(UserTurnCompletionLLMServiceMixin, AIService, Generic[TAdapter]
                 (``cancel_on_interruption=False``) is registered, automatically injects
                 the ``cancel_async_tool_call`` built-in tool and its system instructions
                 so the LLM can cancel stale in-progress calls. Defaults to False.
+            web_search: Enable access to a free, low-latency web search API
+                powered by Keenable AI (https://keenable.ai). Connects to a
+                hosted MCP server and registers search tools automatically — no
+                API key required. Set ``KEENABLE_API_KEY`` for higher rate
+                limits. Defaults to False.
             settings: The runtime-updatable settings for the LLM service.
             **kwargs: Additional arguments passed to the parent AIService.
 
@@ -282,6 +288,8 @@ class LLMService(UserTurnCompletionLLMServiceMixin, AIService, Generic[TAdapter]
         self._group_parallel_tools = group_parallel_tools
         self._function_call_timeout_secs = function_call_timeout_secs
         self._enable_async_tool_cancellation: bool = enable_async_tool_cancellation
+        self._web_search: bool = web_search
+        self._web_search_client: Any = None
         self._filter_incomplete_user_turns: bool = False
         self._async_tool_cancellation_enabled: bool = False
         self._base_system_instruction: str | None = None
@@ -349,6 +357,8 @@ class LLMService(UserTurnCompletionLLMServiceMixin, AIService, Generic[TAdapter]
             frame: The start frame.
         """
         await super().start(frame)
+        if self._web_search:
+            await self._setup_web_search()
         if not self._run_in_parallel:
             await self._create_sequential_runner_task()
         if self._enable_async_tool_cancellation and self._has_async_tools():
@@ -364,6 +374,7 @@ class LLMService(UserTurnCompletionLLMServiceMixin, AIService, Generic[TAdapter]
         if not self._run_in_parallel:
             await self._cancel_sequential_runner_task()
         await self._cancel_summary_task()
+        await self._teardown_web_search()
 
     async def cancel(self, frame: CancelFrame):
         """Cancel the LLM service.
@@ -375,6 +386,7 @@ class LLMService(UserTurnCompletionLLMServiceMixin, AIService, Generic[TAdapter]
         if not self._run_in_parallel:
             await self._cancel_sequential_runner_task()
         await self._cancel_summary_task()
+        await self._teardown_web_search()
 
     def _compose_system_instruction(self):
         """Compose system_instruction from the base and all active addon instructions.
@@ -1009,6 +1021,55 @@ class LLMService(UserTurnCompletionLLMServiceMixin, AIService, Generic[TAdapter]
         self._adapter.builtin_tools.pop(CANCEL_ASYNC_TOOL_NAME, None)
         self._functions.pop(CANCEL_ASYNC_TOOL_NAME, None)
         self._compose_system_instruction()
+
+    async def _setup_web_search(self):
+        """Connect to the web search MCP server and register search tools.
+
+        Injects tool schemas into the adapter's built-in tools (so they appear
+        in every inference request) and registers the MCP tool handlers.
+        """
+        try:
+            from pipecat.services.keenable.search import KeenableWebSearch
+        except Exception as e:
+            logger.error(
+                f"{self}: web_search=True requires pipecat-ai[keenable]. Error: {e}"
+            )
+            return
+
+        client = KeenableWebSearch()
+        try:
+            await client.start()
+        except Exception as e:
+            logger.error(f"{self}: Failed to connect to web search MCP server: {e}")
+            return
+
+        try:
+            tools_schema = await client.register_tools(self)
+        except Exception as e:
+            logger.error(f"{self}: Failed to register web search tools: {e}")
+            await client.close()
+            return
+
+        # Inject schemas into builtin_tools so they're auto-merged into every
+        # inference request — same pattern as cancel_async_tool_call.
+        for schema in tools_schema.standard_tools:
+            self._adapter.builtin_tools[schema.name] = schema
+
+        self._web_search_client = client
+        logger.info(
+            f"{self}: Web search enabled — {len(tools_schema.standard_tools)} tool(s) registered"
+        )
+
+    async def _teardown_web_search(self):
+        """Close the web search MCP connection and remove search tools."""
+        if self._web_search_client is not None:
+            # Remove builtin tool schemas
+            for name in list(self._adapter.builtin_tools):
+                if name not in (CANCEL_ASYNC_TOOL_NAME,):
+                    self._adapter.builtin_tools.pop(name, None)
+                    self._functions.pop(name, None)
+            await self._web_search_client.close()
+            self._web_search_client = None
 
     async def _cancel_async_tool_call_handler(self, params: FunctionCallParams):
         """Handle a ``cancel_async_tool_call`` invocation from the LLM.

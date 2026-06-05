@@ -162,22 +162,26 @@ class BaseLLMAdapter(ABC, Generic[TLLMInvocationParams]):
                     standard_tools=tools.standard_tools + list(self._builtin_tools.values()),
                     custom_tools=tools.custom_tools,
                 )
+            elif isinstance(tools, NotGiven) or tools is None:
+                # No user-declared tools, but built-in tools need to be sent.
+                tools = ToolsSchema(
+                    standard_tools=list(self._builtin_tools.values()),
+                )
             else:
                 # User supplied tools in a legacy/provider-specific format.
                 # Built-in tools cannot be safely merged, so they will not be injected.
                 # Migrate to ToolsSchema to enable built-in tool support; use custom_tools
                 # as an escape hatch for any provider-specific tools that don't fit the
                 # standard schema.
-                if tools is not None:
-                    warnings.warn(
-                        "Built-in tools (e.g. async tool cancellation) could not be injected "
-                        "because the supplied tools are not a ToolsSchema instance. "
-                        "Migrate to ToolsSchema to enable built-in tool support. "
-                        "Use ToolsSchema(custom_tools=...) as an escape hatch for any "
-                        "provider-specific tools that don't fit the standard schema.",
-                        DeprecationWarning,
-                        stacklevel=2,
-                    )
+                warnings.warn(
+                    "Built-in tools (e.g. web search, async tool cancellation) could not be "
+                    "injected because the supplied tools are not a ToolsSchema instance. "
+                    "Migrate to ToolsSchema to enable built-in tool support. "
+                    "Use ToolsSchema(custom_tools=...) as an escape hatch for any "
+                    "provider-specific tools that don't fit the standard schema.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 # Fall through and return the original tools unchanged.
 
         if isinstance(tools, ToolsSchema):

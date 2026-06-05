@@ -1,0 +1,191 @@
+#
+# Copyright (c) 2024-2026, Daily
+#
+# SPDX-License-Identifier: BSD 2-Clause License
+#
+
+"""Free, low-latency web search for pipecat agents via remote MCP.
+
+Thin wrapper around :class:`~pipecat.services.mcp_service.MCPClient` that
+connects to a hosted MCP server powered by `Keenable AI <https://keenable.ai>`_.
+Tool schemas and implementations live server-side, so updates ship instantly
+without a pipecat release.
+
+No API key is required — the server works keyless by default. Set
+``KEENABLE_API_KEY`` (or pass ``api_key=``) to unlock higher rate limits.
+
+Example — explicit usage::
+
+    from pipecat.services.keenable.search import KeenableWebSearch
+
+    async with KeenableWebSearch() as search:
+        tools = await search.register_tools(llm)
+        context = LLMContext(tools=tools, ...)
+
+Example — one-liner via LLMService::
+
+    llm = OpenAILLMService(api_key=..., web_search=True)
+"""
+
+from __future__ import annotations
+
+import os
+from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+if TYPE_CHECKING:
+    from pipecat.adapters.schemas.function_schema import FunctionSchema
+    from pipecat.adapters.schemas.tools_schema import ToolsSchema
+    from pipecat.pipeline.llm_switcher import LLMSwitcher
+    from pipecat.services.llm_service import LLMService
+
+DEFAULT_MCP_URL = "https://api.keenable.ai/mcp"
+API_KEY_ENV_VAR = "KEENABLE_API_KEY"
+MCP_URL_ENV_VAR = "KEENABLE_MCP_URL"
+
+
+def _pipecat_version() -> str:
+    """Best-effort pipecat version for the User-Agent header."""
+    try:
+        return version("pipecat-ai")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _import_mcp_deps():
+    """Lazy-import MCP dependencies. Raises with a clear message if missing."""
+    try:
+        from mcp.client.session_group import StreamableHttpParameters
+
+        from pipecat.services.mcp_service import MCPClient
+    except ModuleNotFoundError as e:
+        raise ImportError(
+            "Web search requires the 'mcp' package. "
+            "Install it with: pip install 'mcp>=1.11.0'"
+        ) from e
+    return MCPClient, StreamableHttpParameters
+
+
+class KeenableWebSearch:
+    """Zero-config web search for voice agents.
+
+    Connects to a hosted MCP server powered by Keenable AI (Streamable HTTP
+    transport) and registers search tools on any pipecat ``LLMService``. Tool
+    schemas are served dynamically, so API updates propagate automatically.
+
+    Can be used as an async context manager::
+
+        async with KeenableWebSearch() as search:
+            tools = await search.register_tools(llm)
+
+    Or managed manually::
+
+        search = KeenableWebSearch()
+        await search.start()
+        tools = await search.register_tools(llm)
+        ...
+        await search.close()
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        url: str | None = None,
+    ) -> None:
+        """Initialize the web search wrapper.
+
+        Args:
+            api_key: API key for higher rate limits. Falls back to
+                ``KEENABLE_API_KEY`` env var. When unset, the free tier is used.
+            url: MCP server URL. Falls back to ``KEENABLE_MCP_URL`` env var,
+                then ``https://api.keenable.ai/mcp``.
+        """
+        if api_key is None:
+            api_key = (os.environ.get(API_KEY_ENV_VAR) or "").strip() or None
+        if url is None:
+            url = (os.environ.get(MCP_URL_ENV_VAR) or "").strip() or DEFAULT_MCP_URL
+
+        self._url = url
+        self._api_key = api_key
+        self._mcp: Any = None  # MCPClient instance (lazy import)
+
+    def _build_headers(self) -> dict[str, str]:
+        headers = {"User-Agent": f"keenable-pipecat/{_pipecat_version()}"}
+        if self._api_key:
+            headers["X-API-Key"] = self._api_key
+        return headers
+
+    async def start(self) -> None:
+        """Open the MCP connection to Keenable's server.
+
+        Raises:
+            ImportError: If ``pipecat-ai[keenable]`` is not installed.
+        """
+        if self._mcp is not None:
+            return
+
+        MCPClient, StreamableHttpParameters = _import_mcp_deps()
+
+        self._mcp = MCPClient(
+            server_params=StreamableHttpParameters(
+                url=self._url,
+                headers=self._build_headers(),
+            ),
+        )
+        await self._mcp.start()
+        logger.info(f"KeenableWebSearch: connected to {self._url}")
+
+    async def close(self) -> None:
+        """Close the MCP connection. Safe to call multiple times."""
+        if self._mcp is not None:
+            await self._mcp.close()
+            self._mcp = None
+
+    async def __aenter__(self) -> KeenableWebSearch:
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()
+
+    async def register_tools(self, llm: LLMService | LLMSwitcher) -> ToolsSchema:
+        """Discover tools from the MCP server and register them on the LLM.
+
+        Args:
+            llm: The pipecat LLM service to register tools with.
+
+        Returns:
+            A ToolsSchema containing the registered tools.
+        """
+        self._ensure_connected()
+        return await self._mcp.register_tools(llm)
+
+    async def get_tools_schema(self) -> ToolsSchema:
+        """Get tool schemas from the MCP server without registering them.
+
+        Returns:
+            A ToolsSchema containing the available tools.
+        """
+        self._ensure_connected()
+        return await self._mcp.get_tools_schema()
+
+    async def get_function_schemas(self) -> list[FunctionSchema]:
+        """Get individual FunctionSchema objects from the MCP server.
+
+        Useful for injecting into ``adapter.builtin_tools``.
+
+        Returns:
+            List of FunctionSchema objects for each available tool.
+        """
+        tools_schema = await self.get_tools_schema()
+        return list(tools_schema.standard_tools)
+
+    def _ensure_connected(self) -> None:
+        if self._mcp is None:
+            raise RuntimeError(
+                "KeenableWebSearch is not connected. Use 'async with KeenableWebSearch()' "
+                "or call 'await search.start()' first."
+            )

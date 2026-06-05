@@ -42,6 +42,7 @@ dependencies = [
     # Inlined here instead of using a self-referential extra for Poetry compatibility.
     "transformers>=4.48.0,<6",
     "onnxruntime~=1.24.3",
+    "mcp>=1.11.0,<2",
 ]
 
 [project.urls]
@@ -79,6 +80,7 @@ heygen = [ "livekit>=1.0.13,<2", "pipecat-ai[websockets-base]" ]
 hume = [ "hume>=0.11.2,<1" ]
 inworld = [ "pipecat-ai[websockets-base]" ]
 koala = [ "pvkoala~=2.0.3" ]
+keenable = []
 kokoro = [ "kokoro-onnx>=0.5.0,<1", "requests>=2.32.5,<3" ]
 langchain = [ "langchain>=1.2.13,<2", "langchain-community>=0.4.1,<1", "langchain-openai>=1.1.12,<2" ]
 lemonslice = [ "pipecat-ai[daily]" ]
@@ -86,7 +88,7 @@ livekit = [ "livekit>=1.0.13,<2", "livekit-api>=1.0.5,<2", "tenacity>=8.2.3,<10.
 lmnt = [ "pipecat-ai[websockets-base]" ]
 local = [ "pyaudio~=0.2.14" ]
 local-smart-turn = [ "coremltools>=8.0", "transformers>=4.48.0,<6", "torch>=2.5.0,<3", "torchaudio>=2.5.0,<3" ]
-mcp = [ "mcp[cli]>=1.11.0,<2" ]
+mcp = []
 mem0 = [ "mem0ai>=1.0.8,<2" ]
 mistral = ["mistralai>=2.0.0,<3"]
 mlx-whisper = [ "mlx-whisper~=0.4.2" ]
