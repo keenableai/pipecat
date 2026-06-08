@@ -43,6 +43,8 @@ if TYPE_CHECKING:
 
 _MCP_URL = "https://api.keenable.ai/mcp"
 API_KEY_ENV_VAR = "KEENABLE_API_KEY"
+SEARCH_MODE_ENV_VAR = "KEENABLE_SEARCH_MODE"
+VALID_SEARCH_MODES = ("pro", "realtime")
 
 
 def _pipecat_version() -> str:
@@ -92,17 +94,32 @@ class KeenableWebSearch:
         self,
         *,
         api_key: str | None = None,
+        mode: str = "pro",
     ) -> None:
         """Initialize the web search wrapper.
 
         Args:
             api_key: API key for higher rate limits. Falls back to
                 ``KEENABLE_API_KEY`` env var. When unset, the free tier is used.
+            mode: Search mode — ``"pro"`` (default, higher quality) or
+                ``"realtime"`` (fastest). Overridden by the
+                ``KEENABLE_SEARCH_MODE`` env var if set.
         """
         if api_key is None:
             api_key = (os.environ.get(API_KEY_ENV_VAR) or "").strip() or None
 
+        env_mode = (os.environ.get(SEARCH_MODE_ENV_VAR) or "").strip().lower()
+        if env_mode:
+            if env_mode not in VALID_SEARCH_MODES:
+                logger.warning(
+                    f"KeenableWebSearch: ignoring invalid {SEARCH_MODE_ENV_VAR}={env_mode!r}, "
+                    f"expected one of {VALID_SEARCH_MODES}. Using {mode!r}."
+                )
+            else:
+                mode = env_mode
+
         self._api_key = api_key
+        self._mode = mode
         self._mcp: Any = None  # MCPClient instance (lazy import)
 
     def _build_headers(self) -> dict[str, str]:
@@ -122,14 +139,16 @@ class KeenableWebSearch:
 
         MCPClient, StreamableHttpParameters = _import_mcp_deps()
 
+        url = f"{_MCP_URL}?force={self._mode}"
+
         self._mcp = MCPClient(
             server_params=StreamableHttpParameters(
-                url=_MCP_URL,
+                url=url,
                 headers=self._build_headers(),
             ),
         )
         await self._mcp.start()
-        logger.info(f"KeenableWebSearch: connected to {_MCP_URL}")
+        logger.info(f"KeenableWebSearch: connected to {_MCP_URL} (mode={self._mode})")
 
     async def close(self) -> None:
         """Close the MCP connection. Safe to call multiple times."""
